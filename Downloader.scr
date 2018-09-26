@@ -1,0 +1,16 @@
+module Downloader;
+
+type <go> "int" from "builtin" as int;
+type <go> "string" from "builtin" as string;
+sig <go> "msgsig.Request" from "github.com/nickng/httpget/msgsig" as Request;
+sig <go> "msgsig.Response" from "github.com/nickng/httpget/msgsig" as Response;
+
+global protocol Downloader(role Master, role Fetcher, role Server) {
+  foreach Fetcher[I:1,N] {
+    URL(string) from Master[1,1] to Fetcher[I,I];
+    Request from Fetcher[I,I] to Server[1,1];
+    Response from Server[1,1] to Fetcher[I,I];
+    Done(string) from Fetcher[I,I] to Master[1,1];
+  }
+
+}
