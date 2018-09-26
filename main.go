@@ -4,6 +4,7 @@ package main
 
 import (
 	"encoding/gob"
+	"flag"
 	"fmt"
 	"log"
 	"sync"
@@ -20,29 +21,31 @@ import (
 )
 
 const (
-	// N is the number of Fetchers.
-	N        = 2
 	httpHost = "127.0.0.1"
 	httpPort = 6060
 )
 
+// N is the number of Fetchers.
+var N int
+
+func init() {
+	flag.IntVar(&N, "N", 1, "Specify number of Fetchers")
+}
+
 func main() {
+	flag.Parse()
+
 	// Load protocol.
 	protocol := Downloader.New()
 
 	// Initialise roles.
-	M := protocol.New_Master_1to1(2, 1)
-	F1 := protocol.New_family_1_Fetcher_1toN(2, 1)
-	F2 := protocol.New_family_1_Fetcher_1toN(2, 2)
-
-	// Create connections.
-	MtoF1, err := shm.Listen(0)
-	if err != nil {
-		log.Fatal(err)
-	}
-	MtoF2, err := shm.Listen(1)
-	if err != nil {
-		log.Fatal(err)
+	M := protocol.New_Master_1to1(N, 1)
+	F := make([]*Fetcher_1toN.Fetcher_1toN, N)
+	MtoF := make([]transport2.ScribListener, N) // Connections
+	for i := 0; i < N; i++ {                    // Create N fetchers
+		fetcherID := i + 1
+		F[i] = protocol.New_family_1_Fetcher_1toN(N, fetcherID)
+		MtoF[i], _ = shm.Listen(i)
 	}
 
 	// Register messaging.
@@ -50,20 +53,22 @@ func main() {
 	gob.Register(msgsig.Response{})
 
 	waitall := new(sync.WaitGroup)
-	waitall.Add(3)
+	waitall.Add(N + 1)
 
-	go initMaster(M, 0, 1, waitall)
-	go initFetcher(F1, MtoF1, httpHost, httpPort, waitall)
-	go initFetcher(F2, MtoF2, httpHost, httpPort, waitall)
+	// Spawn roles
+	go initMaster(M, waitall)
+	for i := 0; i < N; i++ {
+		go initFetcher(F[i], MtoF[i], httpHost, httpPort, waitall)
+	}
 	waitall.Wait()
 }
 
-func initMaster(M *Master_1to1.Master_1to1, portF1, portF2 int, wg *sync.WaitGroup) {
-	if err := M.Fetcher_1toN_Dial(1, "inmem", portF1, shm.Dial, new(session2.GobFormatter)); err != nil {
-		log.Fatalf("connection failed: %v", err)
-	}
-	if err := M.Fetcher_1toN_Dial(2, "inmem", portF2, shm.Dial, new(session2.GobFormatter)); err != nil {
-		log.Fatalf("connection failed: %v", err)
+func initMaster(M *Master_1to1.Master_1to1, wg *sync.WaitGroup) {
+	for i := 0; i < N; i++ { // Connect to N Fetchers.
+		fetcherID := i + 1
+		if err := M.Fetcher_1toN_Dial(fetcherID, "inmem", i, shm.Dial, new(session2.GobFormatter)); err != nil {
+			log.Fatalf("connection failed: %v", err)
+		}
 	}
 	fmt.Println("Master")
 	M.Run(Master)
