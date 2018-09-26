@@ -48,10 +48,6 @@ func main() {
 		MtoF[i], _ = shm.Listen(i)
 	}
 
-	// Register messaging.
-	gob.Register(msgsig.Request{})
-	gob.Register(msgsig.Response{})
-
 	waitall := new(sync.WaitGroup)
 	waitall.Add(N + 1)
 
@@ -61,6 +57,9 @@ func main() {
 		go initFetcher(F[i], MtoF[i], httpHost, httpPort, waitall)
 	}
 	waitall.Wait()
+	for _, c := range MtoF {
+		c.Close()
+	}
 }
 
 func initMaster(M *Master_1to1.Master_1to1, wg *sync.WaitGroup) {
@@ -71,7 +70,10 @@ func initMaster(M *Master_1to1.Master_1to1, wg *sync.WaitGroup) {
 		}
 	}
 	fmt.Println("Master")
+
+	// Run Master FSM.
 	M.Run(Master)
+
 	wg.Done()
 }
 
@@ -83,11 +85,14 @@ func initFetcher(F *Fetcher_1toN.Fetcher_1toN, M transport2.ScribListener, serve
 		log.Fatalf("connection failed: %v", err)
 	}
 	fmt.Println("Fetcher")
+
+	// Run Fetcher FSM.
 	F.Run(Fetcher)
+
 	wg.Done()
 }
 
-// Fetcher is the implemenatation of Fetcher[1..N] role.
+// Fetcher is the implementation of Fetcher[1..N] role.
 func Fetcher(s *Fetcher_1toN.Init) Fetcher_1toN.End {
 	// Put implementation of Fetcher here
 	url := allocURLs()
@@ -95,7 +100,6 @@ func Fetcher(s *Fetcher_1toN.Init) Fetcher_1toN.End {
 
 	s0 := s.Master_1to1_Gather_URL(url)
 	req := makeRequest(url)
-
 	s1 := s0.Server_1to1_Scatter_Request(req)
 	s2 := s1.Server_1to1_Gather_Response(res)
 
@@ -104,12 +108,13 @@ func Fetcher(s *Fetcher_1toN.Init) Fetcher_1toN.End {
 	return *s3 // end of Fetcher
 }
 
-// Master is the implemenatation of Master role.
+// Master is the implementation of Master role.
 func Master(s *Master_1to1.Init) Master_1to1.End {
 	// Put implementation of Master here
-	URL := makeURL("http://127.0.0.1:6060/main.go")
+	URL := makeURL("http://127.0.0.1:6060/MESSAGE")
 	var fetched []string
 
+	fmt.Println("Master: fetch", URL[0])
 	s0 := s.Foreach(func(s *Master_1to1.Init_17) Master_1to1.End {
 		s0 := s.Fetcher_ItoI_Scatter_URL(URL)
 
@@ -155,4 +160,10 @@ func makeURL(url string) []string {
 // allocURLs allocate container for URLs.
 func allocURLs() []string {
 	return make([]string, 1)
+}
+
+func init() {
+	// Register messaging.
+	gob.Register(msgsig.Request{})
+	gob.Register(msgsig.Response{})
 }
