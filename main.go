@@ -7,6 +7,9 @@ import (
 	"flag"
 	"fmt"
 	"log"
+	"net/url"
+	"os"
+	"strconv"
 	"sync"
 
 	"github.com/nickng/httpget/Downloader/Downloader/Master_1to1"
@@ -20,20 +23,39 @@ import (
 	"github.com/rhu1/scribble-go-runtime/runtime/transport2/tcp"
 )
 
-const (
-	httpHost = "127.0.0.1"
-	httpPort = 6060
+var (
+	// N is the number of Fetchers.
+	N int
+	// FetchURL is the URL to fetch.
+	FetchURL string
+	httpHost string
+	httpPort int
 )
-
-// N is the number of Fetchers.
-var N int
 
 func init() {
 	flag.IntVar(&N, "N", 1, "Specify number of Fetchers")
+	log.SetPrefix("httpget: ")
+	log.SetFlags(0)
+	log.SetOutput(os.Stderr)
+	flag.Usage = usage
 }
 
 func main() {
 	flag.Parse()
+	if flag.NArg() < 1 {
+		usage()
+	}
+	FetchURL = flag.Arg(0)
+	log.Println("Fetching", FetchURL)
+	u, err := url.Parse(FetchURL)
+	if err != nil {
+		log.Fatalf("cannot parse URL: %v", err)
+	}
+	httpHost = u.Hostname()
+	httpPort, err = strconv.Atoi(u.Port())
+	if err != nil {
+		httpPort = 80 // default HTTP port
+	}
 
 	// Load protocol.
 	protocol := Downloader.New()
@@ -111,7 +133,7 @@ func Fetcher(s *Fetcher_1toN.Init) Fetcher_1toN.End {
 // Master is the implementation of Master role.
 func Master(s *Master_1to1.Init) Master_1to1.End {
 	// Put implementation of Master here
-	URL := makeURL("http://127.0.0.1:6060/MESSAGE")
+	URL := makeURL(FetchURL)
 	var fetched []string
 
 	fmt.Println("Master: fetch", URL[0])
@@ -166,4 +188,10 @@ func init() {
 	// Register messaging.
 	gob.Register(msgsig.Request{})
 	gob.Register(msgsig.Response{})
+}
+
+func usage() {
+	fmt.Fprintf(os.Stderr, "usage: httpget [-N fetchers] URL\n")
+	flag.PrintDefaults()
+	os.Exit(2)
 }
